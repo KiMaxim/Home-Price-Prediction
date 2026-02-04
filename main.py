@@ -1,6 +1,6 @@
 import numpy 
 import pandas
-import matplotlib.pyplot as plot
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 
@@ -17,20 +17,20 @@ model = LinearRegression()
 model.fit(x_train, y_train)
 
 #Scatterplot of the provided dataset 
-plot.scatter(HouseSizes, HousePrices, marker='o', color='blue') 
-plot.title('House Prices vs House Size') 
-plot.xlabel('House Sizes (ft.sq)') 
-plot.ylabel('House Price ($)') 
-plot.show()
+plt.scatter(HouseSizes, HousePrices, marker='o', color='blue') 
+plt.title('House Prices vs House Size') 
+plt.xlabel('House Sizes (ft.sq)') 
+plt.ylabel('House Price ($)') 
+plt.show()
 
 
 #Linear Regression Graph:
 predictions = model.predict(x_test)
-plot.scatter(x_test, y_test, marker='^', color='blue', label='Actual Price')
-plot.plot(x_test, predictions, color='red', linewidth=2, label='Predicted Price')
-plot.title('House Prices vs House Size')
-plot.xlabel('House Sizes (ft.sq)')
-plot.ylabel('House Price ($)')
-plot.legend()
-plot.show()
+plt.scatter(x_test, y_test, marker='^', color='blue', label='Actual Price')
+plt.plot(x_test, predictions, color='red', linewidth=2, label='Predicted Price')
+plt.title('House Prices vs House Size')
+plt.xlabel('House Sizes (ft.sq)')
+plt.ylabel('House Price ($)')
+plt.legend()
+plt.show()
 
