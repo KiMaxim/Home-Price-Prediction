@@ -59,7 +59,7 @@ X_plot = numpy.linspace(data['HouseSize_Scaled'].min(),
                         data['HouseSize_Scaled'].max(),
                         100)
 
-# Вариант 1: Используя существующие данные (может быть ломаная)
+#Using a data directly
 plt.figure(figsize=(20, 5))
 
 plt.subplot(1, 2, 1)
@@ -67,7 +67,7 @@ plt.scatter(data['HouseSize_Scaled'], data['HousePrice_Scaled'], color="blue")
 plt.plot(data['HouseSize_Scaled'], m * data['HouseSize_Scaled'] + b, color="red")
 plt.title("Using HouseSize_Scaled directly")
 
-# Вариант 2: Используя linspace (всегда прямая)
+#Using linspace 
 plt.subplot(1, 2, 2)
 X_line = numpy.linspace(data['HouseSize_Scaled'].min(), 
                         data['HouseSize_Scaled'].max(), 

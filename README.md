@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This project predicts house prices based on house sizes using **Linear Regression**. It demonstrates basic **data visualization** with Matplotlib and **machine learning** with scikit-learn.
+This project predicts house prices based on house sizes using **Linear Regression**. It demonstrates basic **data visualization** with Matplotlib and **machine learning** with scikit-learn. On top of that, in file _scracth.py_ I have implemented linear regression from scratch, without _sklearn_. Later, I would like to try to show the comparison of accuracy between these two methods of implementaion. 
 
 * **Dataset**: `home_dataset.csv` containing `HouseSize` (square feet) and `HousePrice` ($).
 * **Steps**:
