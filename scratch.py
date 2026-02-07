@@ -17,43 +17,46 @@ mean_Y = data['HousePrice'].mean()
 st_dev_Y = data['HousePrice'].std()
 data['HousePrice_Scaled'] = (data['HousePrice'] - mean_Y)/st_dev_Y
 
+class Scratch_Version:
+    def __init__(self, data, L = 0.001):
+        self.m = 0.0
+        self.b = 0.0
+        self.L = L
+        self.epochs = epochs
+        self.data = data
 
-def standardize(mean, st_dev, data):
-    for i in range(len(data)):
-        data.iloc[i].HouseSize = (data.iloc[i].HouseSize - mean) / st_dev
-    return data
+    def error_function(self): 
+        total_error = 0
+        for i in range(len(self.data)):
+            x = self.data.iloc[i].HouseSize
+            y = self.data.iloc[i].HousePrice
+            total_error += (y - (self.m * x + self.b)) ** 2
+        return total_error / float(len(self.data))
 
+    def gradient_descent(self): 
+        m_grad = 0
+        b_grad = 0
+        n = len(self.data)
+        for i in range(n):
+            x = self.data.iloc[i].HouseSize_Scaled
+            y = self.data.iloc[i].HousePrice_Scaled
 
-def error_function(m, b, points): 
-    total_error = 0
-    for i in range(len(points)):
-        x = points.iloc[i].HouseSize
-        y = points.iloc[i].HousePrice
-        total_error += (y - (m * x + b)) ** 2
-    return total_error / float(len(points))
+            m_grad += -(2/n) * x * (y  - (self.m * x +  self.b))
+            b_grad += -(2/n) * (y  - (self.m * x + self.b))
 
-def gradient_descent(m_now, b_now, points, L): 
-    m_grad = 0
-    b_grad = 0
-    n = len(points)
-    for i in range(n):
-        x = points.iloc[i].HouseSize_Scaled
-        y = points.iloc[i].HousePrice_Scaled
+        self.m -= self.L * m_grad
+        self.b -= self.L * b_grad
+    
+epochs = int(input())
+L = float(input())
+Scratch_Model = Scratch_Version(data, L)
+losses = []
 
-        m_grad += -(2/n) * x * (y  - (m_now * x + b_now))
-        b_grad += -(2/n) * (y  - (m_now * x + b_now))
+for _ in range(epochs):
+    Scratch_Model.gradient_descent()
+    losses.append(Scratch_Model.error_function())
 
-    m = m_now - m_grad * L
-    b = b_now - b_grad * L
-    return m, b
-
-m = 0
-b = 0
-L = 0.01
-epochs = 300
-
-for i in range(epochs):
-    m, b = gradient_descent(m, b, data, L)
+print(losses)
 
 X_plot = numpy.linspace(data['HouseSize_Scaled'].min(),
                         data['HouseSize_Scaled'].max(),
@@ -64,7 +67,7 @@ plt.figure(figsize=(20, 5))
 
 plt.subplot(1, 2, 1)
 plt.scatter(data['HouseSize_Scaled'], data['HousePrice_Scaled'], color="blue")
-plt.plot(data['HouseSize_Scaled'], m * data['HouseSize_Scaled'] + b, color="red")
+plt.plot(data['HouseSize_Scaled'], Scratch_Model.m * data['HouseSize_Scaled'] + Scratch_Model.b, color="red")
 plt.title("Using HouseSize_Scaled directly")
 
 #Using linspace 
@@ -72,7 +75,8 @@ plt.subplot(1, 2, 2)
 X_line = numpy.linspace(data['HouseSize_Scaled'].min(), 
                         data['HouseSize_Scaled'].max(), 
                         100)
-Y_line = m * X_line + b
+
+Y_line = Scratch_Model.m * X_line + Scratch_Model.b
 plt.scatter(data['HouseSize_Scaled'], data['HousePrice_Scaled'], color="blue")
 plt.plot(X_line, Y_line, color="red")
 plt.title("Using linspace")
