@@ -1,5 +1,6 @@
 import numpy 
 import pandas
+import logging
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
@@ -47,6 +48,13 @@ class Scratch_Version:
 
         self.m -= self.L * m_grad
         self.b -= self.L * b_grad
+
+logging.basicConfig(
+    filename='training_log.txt',
+    level=logging.INFO,
+    format='%(asctime)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
     
 epochs = int(input())
 L = float(input())
@@ -57,7 +65,11 @@ for _ in range(Scratch_Model.epochs):
     Scratch_Model.gradient_descent()
     losses.append(Scratch_Model.error_function())
 
-print(losses)
+logging.info(f"Epochs: {Scratch_Model.epochs}, With Learning Rate: {Scratch_Model.L}")
+logging.info(f"Final MSE: {losses[-1]:.6f}")
+logging.info(f"m: {Scratch_Model.m:.4f}, b: {Scratch_Model.b:.4f}")
+logging.info(f"All loses: {[round(l, 6) for l in losses]}")
+logging.info("-" * 24)
 
 
 HouseSizes = data['HouseSize'].to_numpy().reshape(-1, 1)
@@ -80,7 +92,7 @@ plt.show()
 
 plt.figure(figsize=(20, 5))
 
-X_sorted = numpy.sort(data['HouseSize'].to_numpy())
+X_sorted = numpy.sort(data['HouseSize_Scaled'].to_numpy())
 Y_line = Scratch_Model.m * X_sorted + Scratch_Model.b
 
 plt.subplot(1, 2, 1)
