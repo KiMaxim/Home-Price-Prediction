@@ -1,144 +1,161 @@
 """
-Home Price Prediction
----------------------
-Predicts the sale price of a house from three features (HouseSize, Bedrooms,
-Location) using two scikit-learn regression models:
-  1. LinearRegression (closed-form OLS).
-  2. Ridge regression (L2-regularised, user picks alpha).
+Home Price Prediction Project
+-----------------------------
+Predicts the price of a house from its size, number of bedrooms and
+location. Compares three models: Linear Regression, Ridge Regression
+and a small TensorFlow neural network.
 
-Both models are wrapped in a single sklearn Pipeline that standardises the
-numeric features and one-hot encodes the categorical Location feature, so
-the user can type real-world inputs like "1800 sq ft, 3 bedrooms, Downtown"
-and get a dollar prediction back.
-
-Sources consulted (ideas were adapted, not copied verbatim):
-  https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
-  https://scikit-learn.org/stable/modules/compose.html
-  https://www.w3schools.com/python/python_ml_linear_regression.asp
+Sources I used while learning the ideas:
+https://www.geeksforgeeks.org/machine-learning/what-is-ridge-regression/
+https://www.geeksforgeeks.org/machine-learning/ml-linear-regression/
+https://www.w3schools.com/python/python_ml_linear_regression.asp
+https://www.tensorflow.org/tutorials
 """
 
-import logging
+import os
 
-import numpy
-import pandas
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.compose import ColumnTransformer
+import tensorflow as tf
+from tensorflow import keras
+
 from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
-DATA_PATH = 'home_dataset.csv'
+# settings
+DATA_FILE = "home_dataset.csv"
 PRICE_FLOOR = 500_000
 
-NUMERIC_FEATURES = ['HouseSize', 'Bedrooms']
-CATEGORICAL_FEATURES = ['Location']
-ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
-TARGET = 'HousePrice'
+NUMERIC_COLS = ["HouseSize", "Bedrooms"]
+CATEGORY_COLS = ["Location"]
+FEATURE_COLS = NUMERIC_COLS + CATEGORY_COLS
+TARGET_COL = "HousePrice"
 
-VALID_LOCATIONS = ('Downtown', 'Suburb', 'Rural')
+LOCATIONS = ["Downtown", "Suburb", "Rural"]
 
-
-# ----------------------------- data loading ------------------------------- #
-
-def load_data(path: str) -> pandas.DataFrame:
-    """Load the CSV and drop unrealistic rows (price below the floor)."""
-    df = pandas.read_csv(path)
-    mask = df['HousePrice'] > PRICE_FLOOR
-    return df.loc[mask].copy()
+# neural network hyper-parameters
+NN_EPOCHS = 200
+NN_BATCH = 8
+RANDOM_SEED = 42
 
 
-# --------------------------- model construction --------------------------- #
+# preprocessing section
+def load_data(path):
+    # read the CSV and drop rows that look like bad data
+    df = pd.read_csv(path)
+    df = df[df[TARGET_COL] > PRICE_FLOOR]
+    return df
 
-def build_pipeline(model) -> Pipeline:
-    """
-    Compose preprocessing + a regression model into a single estimator.
-    StandardScaler for numeric columns, one-hot for the categorical Location.
-    """
-    preprocessor = ColumnTransformer([
-        ('num', StandardScaler(),                       NUMERIC_FEATURES),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), CATEGORICAL_FEATURES),
+
+def make_preprocessor():
+    # scale the numeric columns and one-hot encode the Location column
+    return ColumnTransformer([
+        ("scale", StandardScaler(), NUMERIC_COLS),
+        ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+         CATEGORY_COLS),
     ])
-    return Pipeline([('preprocess', preprocessor), ('regressor', model)])
 
 
-# ----------------------------- metrics helpers ---------------------------- #
+# neural network
+def build_nn(input_dim):
+    # small MLP: two hidden ReLU layers and one linear output for the price
+    tf.keras.utils.set_random_seed(RANDOM_SEED)
+    model = keras.Sequential([
+        keras.layers.Input(shape=(input_dim,)),
+        keras.layers.Dense(32, activation="relu"),
+        keras.layers.Dense(16, activation="relu"),
+        keras.layers.Dense(1),
+    ])
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=0.01),
+        loss="mse",
+        metrics=["mae"],
+    )
+    return model
 
-def collect_metrics(name: str, y_true, y_pred) -> dict:
-    """Bundle the rubric metrics (R² + MAE) plus MSE into a dict."""
-    return {
-        'name': name,
-        'R2':   r2_score(y_true, y_pred),
-        'MAE':  mean_absolute_error(y_true, y_pred),
-        'MSE':  mean_squared_error(y_true, y_pred),
-    }
+
+# metrics
+def score_model(name, y_true, y_pred):
+    # compute R2, MAE and MSE and return them as a dictionary
+    r2 = r2_score(y_true, y_pred)
+    mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
+    return {"name": name, "R2": r2, "MAE": mae, "MSE": mse}
 
 
-def print_metrics_table(results: list) -> None:
+def print_results(results):
     print()
-    print(f"{'Model':<18}{'R²':>10}{'MAE ($)':>16}{'MSE ($²)':>22}")
-    print("-" * 66)
+    print(f"{'Model':<14}{'R2':>10}{'MAE ($)':>16}{'MSE ($^2)':>22}")
+    print("-" * 62)
     for r in results:
-        print(f"{r['name']:<18}{r['R2']:>10.4f}{r['MAE']:>16,.0f}{r['MSE']:>22,.0f}")
+        print(f"{r['name']:<14}{r['R2']:>10.4f}{r['MAE']:>16,.0f}{r['MSE']:>22,.0f}")
     print()
 
 
-# ------------------------------- plotting --------------------------------- #
+def show_plots(y_test, lin_pred, rid_pred, nn_pred, nn_history, df):
+    _, axs = plt.subplots(2, 2, figsize=(13, 9))
 
-def plot_diagnostics(y_test, linear_pred, ridge_pred, df) -> None:
-    _, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    lo, hi = float(y_test.min()), float(y_test.max())
-
-    # Predicted vs Actual — Linear
-    ax = axes[0, 0]
-    ax.scatter(y_test, linear_pred, color='blue', alpha=0.7)
-    ax.plot([lo, hi], [lo, hi], color='red', linestyle='--', label='y = x')
-    ax.set_title('Linear Regression — Predicted vs Actual')
-    ax.set_xlabel('Actual price ($)')
-    ax.set_ylabel('Predicted price ($)')
+    # scatter of predicted vs actual for all three models
+    ax = axs[0, 0]
+    lo = float(y_test.min())
+    hi = float(y_test.max())
+    ax.scatter(y_test, lin_pred, color="blue", alpha=0.6, label="Linear")
+    ax.scatter(y_test, rid_pred, color="green", alpha=0.6, label="Ridge")
+    ax.scatter(y_test, nn_pred, color="orange", alpha=0.6, label="Neural Net")
+    ax.plot([lo, hi], [lo, hi], color="red", linestyle="--", label="perfect")
+    ax.set_xlabel("Actual price ($)")
+    ax.set_ylabel("Predicted price ($)")
+    ax.set_title("Predicted vs Actual")
     ax.legend()
 
-    # Predicted vs Actual — Ridge
-    ax = axes[0, 1]
-    ax.scatter(y_test, ridge_pred, color='green', alpha=0.7)
-    ax.plot([lo, hi], [lo, hi], color='red', linestyle='--', label='y = x')
-    ax.set_title('Ridge Regression — Predicted vs Actual')
-    ax.set_xlabel('Actual price ($)')
-    ax.set_ylabel('Predicted price ($)')
+    # neural network training loss
+    ax = axs[0, 1]
+    ax.plot(nn_history.history["loss"], color="orange", label="train")
+    if "val_loss" in nn_history.history:
+        ax.plot(nn_history.history["val_loss"], color="red",
+                linestyle="--", label="validation")
+    ax.set_yscale("log")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss (log scale)")
+    ax.set_title("Neural Net training loss")
     ax.legend()
 
-    # HouseSize vs HousePrice coloured by Location
-    ax = axes[1, 0]
-    colors = {'Downtown': 'red', 'Suburb': 'blue', 'Rural': 'green'}
-    for loc in VALID_LOCATIONS:
-        sub = df[df['Location'] == loc]
-        ax.scatter(sub['HouseSize'], sub['HousePrice'],
-                   color=colors[loc], label=loc, alpha=0.7)
-    ax.set_title('HouseSize vs HousePrice by Location')
-    ax.set_xlabel('House size (sq ft)')
-    ax.set_ylabel('House price ($)')
+    # house size vs house price
+    ax = axs[1, 0]
+    colors = {"Downtown": "red", "Suburb": "blue", "Rural": "green"}
+    for loc in LOCATIONS:
+        sub = df[df["Location"] == loc]
+        ax.scatter(sub["HouseSize"], sub["HousePrice"],
+                   color=colors[loc], alpha=0.7, label=loc)
+    ax.set_xlabel("House size (sq ft)")
+    ax.set_ylabel("Price ($)")
+    ax.set_title("Size vs Price by Location")
     ax.legend()
 
-    # Average HousePrice by bedroom count
-    ax = axes[1, 1]
-    by_bed = df.groupby('Bedrooms')['HousePrice'].mean()
-    ax.bar(by_bed.index, by_bed.values, color='purple', alpha=0.7)
-    ax.set_title('Average HousePrice by Bedroom Count')
-    ax.set_xlabel('Bedrooms')
-    ax.set_ylabel('Average price ($)')
-    ax.grid(True, axis='y')
+    # average price by bedroom count
+    ax = axs[1, 1]
+    by_bed = df.groupby("Bedrooms")["HousePrice"].mean()
+    ax.bar(by_bed.index, by_bed.values, color="purple", alpha=0.7)
+    ax.set_xlabel("Bedrooms")
+    ax.set_ylabel("Average price ($)")
+    ax.set_title("Average price by bedroom count")
+    ax.grid(True, axis="y")
 
     plt.tight_layout()
     plt.show()
 
 
-# ---------------------------- user interaction ---------------------------- #
-
-def ask_float(prompt: str, default: float, must_be_positive: bool = True) -> float:
-    """Re-prompt until the user gives a valid float (or hits enter for default)."""
+# user input
+def ask_float(prompt, default):
+    # keep asking until the user gives us a positive number (blank = default)
     while True:
         raw = input(f"{prompt} (default {default}): ").strip()
         if raw == "":
@@ -146,16 +163,15 @@ def ask_float(prompt: str, default: float, must_be_positive: bool = True) -> flo
         try:
             value = float(raw)
         except ValueError:
-            print(f"  '{raw}' isn't a number. Try again or press enter for {default}.")
+            print("  That's not a number, try again.")
             continue
-        if must_be_positive and value <= 0:
-            print(f"  Value has to be positive. Try again or press enter for {default}.")
+        if value <= 0:
+            print("  The number has to be positive.")
             continue
         return value
 
 
-def ask_int(prompt: str, default: int, must_be_positive: bool = True) -> int:
-    """Re-prompt until the user gives a valid int (or hits enter for default)."""
+def ask_int(prompt, default):
     while True:
         raw = input(f"{prompt} (default {default}): ").strip()
         if raw == "":
@@ -163,151 +179,176 @@ def ask_int(prompt: str, default: int, must_be_positive: bool = True) -> int:
         try:
             value = int(raw)
         except ValueError:
-            print(f"  '{raw}' isn't an integer. Try again or press enter for {default}.")
+            print("  That's not a whole number, try again.")
             continue
-        if must_be_positive and value <= 0:
-            print(f"  Value has to be positive. Try again or press enter for {default}.")
+        if value <= 0:
+            print("  The number has to be positive.")
             continue
         return value
 
 
-def ask_location() -> str:
-    options_str = " / ".join(VALID_LOCATIONS)
+def ask_location():
+    options = " / ".join(LOCATIONS)
     while True:
-        raw = input(f"Location ({options_str}): ").strip().title()
-        if raw in VALID_LOCATIONS:
+        raw = input(f"Location ({options}): ").strip().title()
+        if raw in LOCATIONS:
             return raw
-        print(f"  Pick one of: {options_str}")
+        print(f"  Please pick one of: {options}")
 
 
-def predict_dollars(size: float, bedrooms: int, location: str,
-                    linear_model: Pipeline, ridge_model: Pipeline) -> dict:
-    """Run a single user-supplied house through both models."""
-    row = pandas.DataFrame([{
-        'HouseSize': size,
-        'Bedrooms':  bedrooms,
-        'Location':  location,
-    }])
-    return {
-        'Linear': float(linear_model.predict(row)[0]),
-        'Ridge':  float(ridge_model.predict(row)[0]),
-    }
-
-
-def interactive_prediction_loop(linear_model: Pipeline, ridge_model: Pipeline) -> None:
-    exit_words = {"", "b", "back", "q", "quit", "exit", "menu"}
-    print("\nEnter the house features to get a price estimate.")
+# interactive prediction loop
+def predict_loop(lin_model, rid_model, nn_model, nn_pre, y_mean, y_std):
+    print("\nEnter the house details and I'll predict the price.")
     print("Type 'back' at the size prompt to return to the main menu.\n")
+
     while True:
         raw = input("House size in sq ft (or 'back'): ").strip().lower()
-        if raw in exit_words:
+        if raw in ("", "back", "b", "q", "quit", "exit"):
             print("Returning to main menu.\n")
             return
+
         try:
             size = float(raw)
         except ValueError:
-            print("  Please enter a number (e.g. 1800), or 'back' to return.")
+            print("  Please enter a number (e.g. 1800).")
             continue
         if size <= 0:
-            print("  House size has to be positive.")
+            print("  The size has to be positive.")
             continue
 
-        bedrooms = ask_int("Number of bedrooms", default=3)
+        bedrooms = ask_int("Number of bedrooms", 3)
         location = ask_location()
 
-        predictions = predict_dollars(size, bedrooms, location,
-                                      linear_model, ridge_model)
+        # build a 1-row DataFrame so the sklearn pipelines see the right columns
+        row = pd.DataFrame([{
+            "HouseSize": size,
+            "Bedrooms": bedrooms,
+            "Location": location,
+        }])
+
+        lin_price = float(lin_model.predict(row)[0])
+        rid_price = float(rid_model.predict(row)[0])
+
+        # the neural net needs the preprocessed row, and its output is scaled
+        nn_row = nn_pre.transform(row).astype("float32")
+        nn_scaled = float(nn_model.predict(nn_row, verbose=0).flatten()[0])
+        nn_price = nn_scaled * y_std + y_mean
+
+        predictions = {
+            "Linear": lin_price,
+            "Ridge": rid_price,
+            "Neural Net": nn_price,
+        }
         print(f"  Predicted price for a {size:.0f} sq-ft, "
               f"{bedrooms}-bedroom {location} house:")
-        for model_name, dollars in predictions.items():
-            print(f"    {model_name:<8} ${dollars:,.0f}")
+        for name, price in predictions.items():
+            print(f"    {name:<11} ${price:,.0f}")
         print()
 
 
-# -------------------------------- logging --------------------------------- #
-
-def configure_logging() -> None:
-    logging.basicConfig(
-        filename='training_log.txt',
-        level=logging.INFO,
-        format='%(asctime)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-    )
-
-
-def log_run(ridge_alpha: float, results: list) -> None:
-    logging.info(f"Ridge alpha: {ridge_alpha}")
-    for r in results:
-        logging.info(f"{r['name']:<18} R²={r['R2']:.4f}  MAE={r['MAE']:.2f}  MSE={r['MSE']:.2f}")
-    logging.info("-" * 40)
-
-
-# --------------------------------- main ----------------------------------- #
-
-def main() -> None:
-    configure_logging()
-
+# main program
+def main():
     print("=" * 60)
-    print(" Home Price Prediction — Linear vs Ridge Regression")
+    print(" Home Price Prediction")
+    print(" Linear vs Ridge vs Neural Network")
     print("=" * 60)
 
-    df = load_data(DATA_PATH)
+    # load the data
+    df = load_data(DATA_FILE)
     print(f"Loaded {len(df)} houses priced above ${PRICE_FLOOR:,}.")
-    print(f"Features: {ALL_FEATURES}.  Target: {TARGET}.\n")
+    print(f"Features: {FEATURE_COLS}.  Target: {TARGET_COL}.\n")
 
-    ridge_alpha = ask_float("Ridge regularisation alpha", 1.0)
+    # let the user pick the ridge regularisation strength
+    ridge_alpha = ask_float("Ridge alpha (regularisation strength)", 1.0)
 
-    X = df[ALL_FEATURES]
-    y = df[TARGET].values
+    # split into features (X) and target (y), then into train/test sets
+    X = df[FEATURE_COLS]
+    y = df[TARGET_COL].values
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42,
+        X, y, test_size=0.2, random_state=RANDOM_SEED,
     )
-    y_test = numpy.asarray(y_test)
+    y_test = np.asarray(y_test)
 
-    linear_model = build_pipeline(LinearRegression())
-    linear_model.fit(X_train, y_train)
-    linear_pred = linear_model.predict(X_test)
+    # linear regression
+    lin_model = Pipeline([
+        ("prep", make_preprocessor()),
+        ("reg", LinearRegression()),
+    ])
+    lin_model.fit(X_train, y_train)
+    lin_pred = lin_model.predict(X_test)
 
-    ridge_model = build_pipeline(Ridge(alpha=ridge_alpha))
-    ridge_model.fit(X_train, y_train)
-    ridge_pred = ridge_model.predict(X_test)
+    # ridge regression
+    rid_model = Pipeline([
+        ("prep", make_preprocessor()),
+        ("reg", Ridge(alpha=ridge_alpha)),
+    ])
+    rid_model.fit(X_train, y_train)
+    rid_pred = rid_model.predict(X_test)
 
+    # fit the preprocessor once and reuse it
+    nn_pre = make_preprocessor()
+    X_train_nn = nn_pre.fit_transform(X_train).astype("float32")
+    X_test_nn = nn_pre.transform(X_test).astype("float32")
+
+    # normalise the target so the network trains in a sensible range
+    y_mean = float(np.mean(y_train))
+    y_std = float(np.std(y_train))
+    if y_std == 0:
+        y_std = 1.0
+    y_train_nn = ((y_train - y_mean) / y_std).astype("float32")
+
+    print(f"\nTraining neural network ({NN_EPOCHS} epochs)... ", end="", flush=True)
+    nn_model = build_nn(X_train_nn.shape[1])
+    nn_history = nn_model.fit(
+        X_train_nn, y_train_nn,
+        epochs=NN_EPOCHS,
+        batch_size=NN_BATCH,
+        validation_split=0.1,
+        verbose=0,
+    )
+    print("done.")
+
+    # the NN predicts in the scaled range, so convert back to dollars
+    nn_pred_scaled = nn_model.predict(X_test_nn, verbose=0).flatten()
+    nn_pred = nn_pred_scaled * y_std + y_mean
+
+    # collect and display metrics
     results = [
-        collect_metrics('Linear (test)', y_test, linear_pred),
-        collect_metrics('Ridge (test)',  y_test, ridge_pred),
+        score_model("Linear", y_test, lin_pred),
+        score_model("Ridge", y_test, rid_pred),
+        score_model("Neural Net", y_test, nn_pred),
     ]
-    print_metrics_table(results)
-    log_run(ridge_alpha, results)
+    print_results(results)
 
+    # main menu
     menu = {
-        '1': 'Show diagnostic plots',
-        '2': 'Predict a house price',
-        '3': 'Re-print metrics',
-        '4': 'Quit',
+        "1": "Show diagnostic plots",
+        "2": "Predict a house price",
+        "3": "Show metrics again",
+        "4": "Quit",
     }
     while True:
         print("What would you like to do?")
         for key, label in menu.items():
             print(f"  {key}. {label}")
-        choice = input("Choice: ").strip()
-        choice_lc = choice.lower()
+        choice = input("Choice: ").strip().lower()
 
-        if choice == '1':
-            plot_diagnostics(y_test, linear_pred, ridge_pred, df)
-        elif choice == '2':
-            interactive_prediction_loop(linear_model, ridge_model)
-        elif choice == '3':
-            print_metrics_table(results)
-        elif choice == '4' or choice_lc in ('q', 'quit', 'exit'):
-            print("Goodbye.")
+        if choice == "1":
+            show_plots(y_test, lin_pred, rid_pred, nn_pred, nn_history, df)
+        elif choice == "2":
+            predict_loop(lin_model, rid_model, nn_model, nn_pre, y_mean, y_std)
+        elif choice == "3":
+            print_results(results)
+        elif choice == "4" or choice in ("q", "quit", "exit"):
+            print("Goodbye!")
             break
         else:
-            print(f"  '{choice}' isn't on the menu — pick 1–4.\n")
+            print(f"  '{choice}' isn't on the menu, please pick 1-4.\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except (KeyboardInterrupt, EOFError):
-        print("\nInterrupted. Goodbye.")
+        print("\nInterrupted. Goodbye!")
