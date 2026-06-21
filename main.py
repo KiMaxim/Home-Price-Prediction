@@ -1,16 +1,20 @@
 """
 Home Price Prediction
-Predicts house sale price from house size using three regression approaches:
-  1. A from-scratch linear regression trained with gradient descent.
-  2. Scikit-learn's LinearRegression.
-  3. Scikit-learn's Ridge regression.
+---------------------
+Predicts the sale price of a house from three features (HouseSize, Bedrooms,
+Location) using two scikit-learn regression models:
+  1. LinearRegression (closed-form OLS).
+  2. Ridge regression (L2-regularised, user picks alpha).
 
-The user picks epochs / learning rate, can plot results, and can type in any
-house size to get a price prediction back from each model.
+Both models are wrapped in a single sklearn Pipeline that standardises the
+numeric features and one-hot encodes the categorical Location feature, so
+the user can type real-world inputs like "1800 sq ft, 3 bedrooms, Downtown"
+and get a dollar prediction back.
 
 Sources consulted (ideas were adapted, not copied verbatim):
-https://www.kaggle.com/code/fareselmenshawii/linear-regression-from-scratch
-https://www.w3schools.com/python/python_ml_linear_regression.asp
+  https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
+  https://scikit-learn.org/stable/modules/compose.html
+  https://www.w3schools.com/python/python_ml_linear_regression.asp
 """
 
 import logging
@@ -18,85 +22,52 @@ import logging
 import numpy
 import pandas
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 DATA_PATH = 'home_dataset.csv'
 PRICE_FLOOR = 500_000
 
+NUMERIC_FEATURES = ['HouseSize', 'Bedrooms']
+CATEGORICAL_FEATURES = ['Location']
+ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+TARGET = 'HousePrice'
 
-# -------------------------- data + scaling helpers -------------------------- #
+VALID_LOCATIONS = ('Downtown', 'Suburb', 'Rural')
+
+
+# ----------------------------- data loading ------------------------------- #
 
 def load_data(path: str) -> pandas.DataFrame:
-    """Load the CSV and drop rows below the price floor."""
+    """Load the CSV and drop unrealistic rows (price below the floor)."""
     df = pandas.read_csv(path)
     mask = df['HousePrice'] > PRICE_FLOOR
     return df.loc[mask].copy()
 
 
-def standardize(df: pandas.DataFrame) -> dict:
+# --------------------------- model construction --------------------------- #
+
+def build_pipeline(model) -> Pipeline:
     """
-    Z-score scale HouseSize and HousePrice and return the scaling stats so we
-    can convert user input / model output back to real dollars and sq-ft later.
+    Compose preprocessing + a regression model into a single estimator.
+    StandardScaler for numeric columns, one-hot for the categorical Location.
     """
-    stats = {
-        'size_mean':  df['HouseSize'].mean(),
-        'size_std':   df['HouseSize'].std(),
-        'price_mean': df['HousePrice'].mean(),
-        'price_std':  df['HousePrice'].std(),
-    }
-    df['HouseSize_Scaled']  = (df['HouseSize']  - stats['size_mean'])  / stats['size_std']
-    df['HousePrice_Scaled'] = (df['HousePrice'] - stats['price_mean']) / stats['price_std']
-    return stats
+    preprocessor = ColumnTransformer([
+        ('num', StandardScaler(),                       NUMERIC_FEATURES),
+        ('cat', OneHotEncoder(handle_unknown='ignore'), CATEGORICAL_FEATURES),
+    ])
+    return Pipeline([('preprocess', preprocessor), ('regressor', model)])
 
 
-# -------------------------- scratch implementation -------------------------- #
-
-class ScratchLinearRegression:
-    """Linear regression implemented from scratch using gradient descent."""
-
-    def __init__(self, learning_rate: float, epochs: int) -> None:
-        self.L = learning_rate
-        self.epochs = epochs
-        self.m = 0.0
-        self.b = 0.0
-
-    def _step(self, x: numpy.ndarray, y: numpy.ndarray) -> None:
-        n = len(x)
-        y_pred = self.m * x + self.b
-        m_grad = (-2 / n) * numpy.sum(x * (y - y_pred))
-        b_grad = (-2 / n) * numpy.sum(y - y_pred)
-        self.m -= self.L * m_grad
-        self.b -= self.L * b_grad
-
-    def fit(self, x: numpy.ndarray, y: numpy.ndarray,
-            x_test: numpy.ndarray, y_test: numpy.ndarray) -> dict:
-        train_losses, test_losses = [], []
-        for _ in range(self.epochs):
-            self._step(x, y)
-            train_losses.append(self.mse(x, y))
-            test_losses.append(self.mse(x_test, y_test))
-        return {'train_losses': train_losses, 'test_losses': test_losses}
-
-    def predict(self, x):
-        return self.m * x + self.b
-
-    def mse(self, x, y) -> float:
-        return float(numpy.mean((y - self.predict(x)) ** 2))
-
-    def r2(self, x, y) -> float:
-        y_pred = self.predict(x)
-        rss = numpy.sum((y - y_pred) ** 2)
-        tss = numpy.sum((y - numpy.mean(y)) ** 2)
-        return float(1 - rss / tss)
-
-
-# ----------------------------- metrics helpers ----------------------------- #
+# ----------------------------- metrics helpers ---------------------------- #
 
 def collect_metrics(name: str, y_true, y_pred) -> dict:
-    """Bundle the three rubric metrics into a dict for one model."""
+    """Bundle the rubric metrics (R² + MAE) plus MSE into a dict."""
     return {
         'name': name,
         'R2':   r2_score(y_true, y_pred),
@@ -106,68 +77,65 @@ def collect_metrics(name: str, y_true, y_pred) -> dict:
 
 
 def print_metrics_table(results: list) -> None:
-    """Pretty-print metrics for every model in `results`."""
     print()
-    print(f"{'Model':<22}{'R²':>10}{'MAE':>12}{'MSE':>12}")
-    print("-" * 56)
+    print(f"{'Model':<18}{'R²':>10}{'MAE ($)':>16}{'MSE ($²)':>22}")
+    print("-" * 66)
     for r in results:
-        print(f"{r['name']:<22}{r['R2']:>10.4f}{r['MAE']:>12.4f}{r['MSE']:>12.4f}")
+        print(f"{r['name']:<18}{r['R2']:>10.4f}{r['MAE']:>16,.0f}{r['MSE']:>22,.0f}")
     print()
 
 
 # ------------------------------- plotting --------------------------------- #
 
-def plot_everything(x_test, y_test,
-                    scratch, sklearn_pred, ridge_pred,
-                    train_losses, test_losses) -> None:
+def plot_diagnostics(y_test, linear_pred, ridge_pred, df) -> None:
     _, axes = plt.subplots(2, 2, figsize=(14, 10))
-    sorted_idx = x_test.argsort()
 
-    # Scratch
+    lo, hi = float(y_test.min()), float(y_test.max())
+
+    # Predicted vs Actual — Linear
     ax = axes[0, 0]
-    ax.scatter(x_test, y_test, marker='^', color='blue', label='Actual')
-    ax.plot(x_test[sorted_idx], scratch.predict(x_test)[sorted_idx],
-            color='red', linewidth=2, label='Scratch Predicted')
-    ax.set_title('Scratch Model')
-    ax.set_xlabel('House Size (Scaled)')
-    ax.set_ylabel('House Price (Scaled)')
+    ax.scatter(y_test, linear_pred, color='blue', alpha=0.7)
+    ax.plot([lo, hi], [lo, hi], color='red', linestyle='--', label='y = x')
+    ax.set_title('Linear Regression — Predicted vs Actual')
+    ax.set_xlabel('Actual price ($)')
+    ax.set_ylabel('Predicted price ($)')
     ax.legend()
 
-    # Sklearn linear
+    # Predicted vs Actual — Ridge
     ax = axes[0, 1]
-    ax.scatter(x_test, y_test, marker='^', color='blue', label='Actual')
-    ax.plot(x_test[sorted_idx], sklearn_pred[sorted_idx],
-            color='red', linewidth=2, label='Sklearn Predicted')
-    ax.set_title('Sklearn Linear Regression')
-    ax.set_xlabel('House Size (Scaled)')
-    ax.set_ylabel('House Price (Scaled)')
+    ax.scatter(y_test, ridge_pred, color='green', alpha=0.7)
+    ax.plot([lo, hi], [lo, hi], color='red', linestyle='--', label='y = x')
+    ax.set_title('Ridge Regression — Predicted vs Actual')
+    ax.set_xlabel('Actual price ($)')
+    ax.set_ylabel('Predicted price ($)')
     ax.legend()
 
-    # Ridge
+    # HouseSize vs HousePrice coloured by Location
     ax = axes[1, 0]
-    ax.scatter(x_test, y_test, marker='^', color='blue', label='Actual')
-    ax.plot(x_test[sorted_idx], ridge_pred[sorted_idx],
-            color='red', linewidth=2, label='Ridge Predicted')
-    ax.set_title('Ridge Regression')
-    ax.set_xlabel('House Size (Scaled)')
-    ax.set_ylabel('House Price (Scaled)')
+    colors = {'Downtown': 'red', 'Suburb': 'blue', 'Rural': 'green'}
+    for loc in VALID_LOCATIONS:
+        sub = df[df['Location'] == loc]
+        ax.scatter(sub['HouseSize'], sub['HousePrice'],
+                   color=colors[loc], label=loc, alpha=0.7)
+    ax.set_title('HouseSize vs HousePrice by Location')
+    ax.set_xlabel('House size (sq ft)')
+    ax.set_ylabel('House price ($)')
     ax.legend()
 
-    # Loss curves
+    # Average HousePrice by bedroom count
     ax = axes[1, 1]
-    ax.plot(train_losses, label='Train Loss', color='blue')
-    ax.plot(test_losses,  label='Test Loss',  color='red')
-    ax.set_title('Scratch Model Loss Curves')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('MSE')
-    ax.legend()
-    ax.grid(True)
+    by_bed = df.groupby('Bedrooms')['HousePrice'].mean()
+    ax.bar(by_bed.index, by_bed.values, color='purple', alpha=0.7)
+    ax.set_title('Average HousePrice by Bedroom Count')
+    ax.set_xlabel('Bedrooms')
+    ax.set_ylabel('Average price ($)')
+    ax.grid(True, axis='y')
 
     plt.tight_layout()
     plt.show()
 
 
-# ---------------------------- user interaction ----------------------------- #
+# ---------------------------- user interaction ---------------------------- #
 
 def ask_float(prompt: str, default: float, must_be_positive: bool = True) -> float:
     """Re-prompt until the user gives a valid float (or hits enter for default)."""
@@ -203,28 +171,35 @@ def ask_int(prompt: str, default: int, must_be_positive: bool = True) -> int:
         return value
 
 
-def predict_dollars(size_sqft: float, scratch, sklearn_lin, ridge, stats: dict) -> dict:
-    """Run a single user-supplied house size through all three models."""
-    size_scaled = (size_sqft - stats['size_mean']) / stats['size_std']
-    arr = numpy.array([[size_scaled]])
+def ask_location() -> str:
+    options_str = " / ".join(VALID_LOCATIONS)
+    while True:
+        raw = input(f"Location ({options_str}): ").strip().title()
+        if raw in VALID_LOCATIONS:
+            return raw
+        print(f"  Pick one of: {options_str}")
 
-    def back_to_dollars(scaled_price):
-        return scaled_price * stats['price_std'] + stats['price_mean']
 
+def predict_dollars(size: float, bedrooms: int, location: str,
+                    linear_model: Pipeline, ridge_model: Pipeline) -> dict:
+    """Run a single user-supplied house through both models."""
+    row = pandas.DataFrame([{
+        'HouseSize': size,
+        'Bedrooms':  bedrooms,
+        'Location':  location,
+    }])
     return {
-        'Scratch':  float(back_to_dollars(scratch.predict(size_scaled))),
-        'Sklearn':  float(back_to_dollars(sklearn_lin.predict(arr)[0])),
-        'Ridge':    float(back_to_dollars(ridge.predict(arr)[0])),
+        'Linear': float(linear_model.predict(row)[0]),
+        'Ridge':  float(ridge_model.predict(row)[0]),
     }
 
 
-def interactive_prediction_loop(scratch, sklearn_lin, ridge, stats: dict) -> None:
-    """Let the user type house sizes and get back dollar estimates."""
+def interactive_prediction_loop(linear_model: Pipeline, ridge_model: Pipeline) -> None:
     exit_words = {"", "b", "back", "q", "quit", "exit", "menu"}
-    print("\nEnter a house size in square feet to get price estimates.")
-    print("Type 'back' (or just press enter) to return to the main menu.\n")
+    print("\nEnter the house features to get a price estimate.")
+    print("Type 'back' at the size prompt to return to the main menu.\n")
     while True:
-        raw = input("House size (sq ft, or 'back'): ").strip().lower()
+        raw = input("House size in sq ft (or 'back'): ").strip().lower()
         if raw in exit_words:
             print("Returning to main menu.\n")
             return
@@ -237,10 +212,15 @@ def interactive_prediction_loop(scratch, sklearn_lin, ridge, stats: dict) -> Non
             print("  House size has to be positive.")
             continue
 
-        predictions = predict_dollars(size, scratch, sklearn_lin, ridge, stats)
-        print(f"  Predictions for a {size:.0f} sq-ft house:")
+        bedrooms = ask_int("Number of bedrooms", default=3)
+        location = ask_location()
+
+        predictions = predict_dollars(size, bedrooms, location,
+                                      linear_model, ridge_model)
+        print(f"  Predicted price for a {size:.0f} sq-ft, "
+              f"{bedrooms}-bedroom {location} house:")
         for model_name, dollars in predictions.items():
-            print(f"    {model_name:<10} ${dollars:,.0f}")
+            print(f"    {model_name:<8} ${dollars:,.0f}")
         print()
 
 
@@ -255,13 +235,10 @@ def configure_logging() -> None:
     )
 
 
-def log_run(scratch, train_losses, test_losses, results) -> None:
-    logging.info(f"Epochs: {scratch.epochs}, Learning Rate: {scratch.L}")
-    logging.info(f"Final Training MSE : {train_losses[-1]:.6f}")
-    logging.info(f"Final Test MSE     : {test_losses[-1]:.6f}")
-    logging.info(f"m: {scratch.m:.4f}, b: {scratch.b:.4f}")
+def log_run(ridge_alpha: float, results: list) -> None:
+    logging.info(f"Ridge alpha: {ridge_alpha}")
     for r in results:
-        logging.info(f"{r['name']:<22} R²={r['R2']:.4f}  MAE={r['MAE']:.4f}  MSE={r['MSE']:.4f}")
+        logging.info(f"{r['name']:<18} R²={r['R2']:.4f}  MAE={r['MAE']:.2f}  MSE={r['MSE']:.2f}")
     logging.info("-" * 40)
 
 
@@ -270,56 +247,42 @@ def log_run(scratch, train_losses, test_losses, results) -> None:
 def main() -> None:
     configure_logging()
 
-    print("=" * 56)
-    print(" Home Price Prediction — Linear vs Ridge vs Scratch")
-    print("=" * 56)
+    print("=" * 60)
+    print(" Home Price Prediction — Linear vs Ridge Regression")
+    print("=" * 60)
 
     df = load_data(DATA_PATH)
-    stats = standardize(df)
     print(f"Loaded {len(df)} houses priced above ${PRICE_FLOOR:,}.")
+    print(f"Features: {ALL_FEATURES}.  Target: {TARGET}.\n")
 
-    epochs        = ask_int("Epochs for the scratch model", 1000)
-    learning_rate = ask_float("Learning rate for the scratch model", 0.01)
-    ridge_alpha   = ask_float("Ridge regularisation alpha", 1.0)
+    ridge_alpha = ask_float("Ridge regularisation alpha", 1.0)
 
-    split = train_test_split(
-        df['HouseSize_Scaled'].values,
-        df['HousePrice_Scaled'].values,
-        test_size=0.2,
-        random_state=42,
+    X = df[ALL_FEATURES]
+    y = df[TARGET].values
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42,
     )
-    x_train, x_test, y_train, y_test = (numpy.asarray(a) for a in split)
+    y_test = numpy.asarray(y_test)
 
-    # Scratch
-    scratch = ScratchLinearRegression(learning_rate=learning_rate, epochs=epochs)
-    losses = scratch.fit(x_train, y_train, x_test, y_test)
-    train_losses, test_losses = losses['train_losses'], losses['test_losses']
-    if numpy.isnan(train_losses[-1]) or numpy.isinf(train_losses[-1]):
-        print("\n  Warning: the scratch model diverged (loss is NaN/inf).")
-        print("  Try a smaller learning rate (e.g. 0.001 - 0.05).\n")
+    linear_model = build_pipeline(LinearRegression())
+    linear_model.fit(X_train, y_train)
+    linear_pred = linear_model.predict(X_test)
 
-    # Sklearn linear
-    sklearn_lin = LinearRegression()
-    sklearn_lin.fit(x_train.reshape(-1, 1), y_train)
-    sklearn_pred = sklearn_lin.predict(x_test.reshape(-1, 1))
-
-    # Ridge
-    ridge = Ridge(alpha=ridge_alpha)
-    ridge.fit(x_train.reshape(-1, 1), y_train)
-    ridge_pred = ridge.predict(x_test.reshape(-1, 1))
+    ridge_model = build_pipeline(Ridge(alpha=ridge_alpha))
+    ridge_model.fit(X_train, y_train)
+    ridge_pred = ridge_model.predict(X_test)
 
     results = [
-        collect_metrics('Scratch (test)',  y_test, scratch.predict(x_test)),
-        collect_metrics('Sklearn (test)',  y_test, sklearn_pred),
-        collect_metrics('Ridge (test)',    y_test, ridge_pred),
+        collect_metrics('Linear (test)', y_test, linear_pred),
+        collect_metrics('Ridge (test)',  y_test, ridge_pred),
     ]
     print_metrics_table(results)
-    log_run(scratch, train_losses, test_losses, results)
+    log_run(ridge_alpha, results)
 
-    # Menu loop — while + if/elif/else
     menu = {
-        '1': 'Show plots',
-        '2': 'Predict a house price from a size',
+        '1': 'Show diagnostic plots',
+        '2': 'Predict a house price',
         '3': 'Re-print metrics',
         '4': 'Quit',
     }
@@ -328,14 +291,12 @@ def main() -> None:
         for key, label in menu.items():
             print(f"  {key}. {label}")
         choice = input("Choice: ").strip()
-
         choice_lc = choice.lower()
+
         if choice == '1':
-            plot_everything(x_test, y_test,
-                            scratch, sklearn_pred, ridge_pred,
-                            train_losses, test_losses)
+            plot_diagnostics(y_test, linear_pred, ridge_pred, df)
         elif choice == '2':
-            interactive_prediction_loop(scratch, sklearn_lin, ridge, stats)
+            interactive_prediction_loop(linear_model, ridge_model)
         elif choice == '3':
             print_metrics_table(results)
         elif choice == '4' or choice_lc in ('q', 'quit', 'exit'):
