@@ -1,151 +1,200 @@
 # Home Price Prediction
 
-A regression project that predicts the **sale price of a house** from its
-**square footage, number of bedrooms, and location**, comparing two
-scikit-learn models:
+A small machine learning project that predicts the **sale price of a
+house** from its size (sq ft), number of bedrooms, and location.
+The program trains three different models on the same data and lets
+the user compare how each one performs:
 
-1. **`LinearRegression`** — ordinary least squares.
-2. **`Ridge`** — L2-regularised regression (user picks `alpha`).
+1. **Linear Regression** (scikit-learn) — a straight-line fit.
+2. **Ridge Regression** (scikit-learn) — linear regression with a
+   regularisation term that penalises large weights.
+3. **Neural Network** (TensorFlow / Keras) — a small multilayer
+   perceptron with two hidden layers.
 
-Both models share a single preprocessing pipeline: `StandardScaler` for the
-numeric features (`HouseSize`, `Bedrooms`) and `OneHotEncoder` for the
-categorical `Location`. The user can train the models, see diagnostic
-plots, and type in a house's features to get a predicted price back.
+After training, the user can look at diagnostic plots, type in a
+house's details and get a predicted price back, or re-print the
+metrics.
 
 ---
 
-## Quick start
+## Setup
+
+This project needs **Python 3.12** because TensorFlow does not yet
+publish wheels for Python 3.13 or 3.14.
 
 ```bash
+python3.12 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+Then run:
+
+```bash
 python main.py
 ```
 
-The program will:
+---
 
-1. Load `home_dataset.csv` and filter houses above $500,000.
-2. Prompt for the **Ridge alpha** (press enter for the default of `1.0`).
-3. Train both models and print a metrics table with **R²**, **MAE**, and
-   **MSE** for each.
-4. Open a menu so the user can show diagnostic plots, ask for price
-   predictions, re-print metrics, or quit.
-5. Append a per-run record to `training_log.txt`.
+## What the program does
+
+1. Loads `home_dataset.csv` and drops any rows priced below $500,000
+   (the dataset has a few obvious bad rows).
+2. Asks the user for the **Ridge alpha** (regularisation strength).
+   Press Enter to use the default of `1.0`.
+3. Trains the three models on the same 80/20 train/test split.
+4. Prints a metrics table with **R²**, **MAE** and **MSE** for each
+   model.
+5. Shows a menu so the user can:
+   - look at four diagnostic plots,
+   - get a price prediction for a house they describe,
+   - re-print the metrics,
+   - quit.
 
 ---
 
 ## Dataset
 
-`home_dataset.csv` — 59 rows, four columns:
+`home_dataset.csv` has 59 rows and four columns:
 
 | Column | Type | Notes |
 |---|---|---|
-| `HouseSize` | int | Square footage. |
+| `HouseSize` | int | Square footage (roughly 800–3500). |
 | `Bedrooms` | int | 1–5. |
 | `Location` | string | One of `Downtown`, `Suburb`, `Rural`. |
-| `HousePrice` | int | Target. Rows below $500k are dropped at load time. |
+| `HousePrice` | int | Target. Rows below $500k are dropped. |
 
 ---
 
-## How the project meets the specification
-
-| Specification line | Where in the project |
-|---|---|
-| "Build a regression model to predict sale price from features (e.g. square footage, number of bedrooms, location)" | `home_dataset.csv` has all three features; `build_pipeline()` wires them into both models |
-| "Tools & Technologies: Python, Pandas, scikit-learn (Linear Regression, Ridge Regression), NumPy, Matplotlib" | All five used — see the `import` block at the top of `main.py` |
-| "A trained regression model, evaluated using metrics like MAE and R² score" | `collect_metrics()` returns R² + MAE (+ MSE); `print_metrics_table()` prints them per model |
-| "…to show how well it predicts prices" | Menu option 1 plots Predicted vs Actual diagnostics; menu option 2 prints a dollar prediction for user-supplied features |
-
----
-
-## How the project meets the assignment rubric
-
-| # | Rubric requirement | Where / how |
-|---|---|---|
-| 1 | Program interacts with the user (prompt + input + outcome shown) | `ask_float`/`ask_int`/`ask_location` collect input with re-prompt; main menu accepts choices; `interactive_prediction_loop` lets the user type a house's features and prints dollar estimates back |
-| 2 | Has a purpose | Practical: estimate a home's sale price from its size, bedrooms, and location, and compare a regularised vs unregularised model |
-| 3 | Uses `while`, `for`, `if`, `else` | `while` — main menu, prediction loop, all `ask_*` re-prompt loops. `for` — metric/menu rendering, location loop in plotting. `if` / `elif` / `else` — input validation, menu dispatch |
-| 4 | Uses variables to retain and alter data | `results` list, scaler/encoder fitted state inside the `Pipeline`, per-run `ridge_alpha` |
-| 5 | Uses strings, lists, dictionaries, other collections | `dict` — per-model metric record, `menu`, `predictions`, `colors`. `list` — `NUMERIC_FEATURES`, `ALL_FEATURES`, `results`. `tuple` — `VALID_LOCATIONS`. `set` — `exit_words` for fast membership. f-strings everywhere |
-| 6 | Defines and calls functions | `load_data`, `build_pipeline`, `collect_metrics`, `print_metrics_table`, `plot_diagnostics`, `ask_float`, `ask_int`, `ask_location`, `predict_dollars`, `interactive_prediction_loop`, `configure_logging`, `log_run`, `main` |
-| 7 | Identifies sources in comments | Top-of-file docstring lists the URLs of every reference consulted |
-| 8 | Modifies any borrowed code to make it original | Standard sklearn snippets (`ColumnTransformer`, `Pipeline`) are referenced for shape only; the dataset, menu, prediction loop, plotting layout, validation, and logging are original |
-
----
-
-## Code organization
-
-Every concern lives in a small, single-purpose function — no top-level
-script soup, no copy-pasted blocks:
-
-```
-load_data                       → CSV load + filter
-build_pipeline                  → scaler + one-hot + regressor
-collect_metrics / print_metrics → evaluation
-plot_diagnostics                → matplotlib visualisation
-ask_float / ask_int / ask_location → robust user input with re-prompt
-predict_dollars                 → wrap a single house in a DataFrame and predict
-interactive_prediction_loop     → per-house prediction REPL
-configure_logging / log_run     → run logging
-main                            → orchestration + menu
-```
-
-Identifier names are descriptive (`ridge_alpha`, `linear_pred`,
-`predict_dollars`, `valid_locations`), repetition is factored out
-(`ask_int` / `ask_float` / `ask_location` share the same re-prompt
-pattern, the two diagnostic panels share the same plotting recipe), and
-the control flow mirrors the structure of the problem (`while` for loops
-that depend on user state, `for` for fixed iteration, `if`/`elif` for
-menu dispatch).
-
----
-
-## Sample interaction
+## Sample run
 
 ```
 ============================================================
- Home Price Prediction — Linear vs Ridge Regression
+ Home Price Prediction
+ Linear vs Ridge vs Neural Network
 ============================================================
 Loaded 58 houses priced above $500,000.
 Features: ['HouseSize', 'Bedrooms', 'Location'].  Target: HousePrice.
 
-Ridge regularisation alpha (default 1.0):
+Ridge alpha (regularisation strength) (default 1.0):
 
-Model                     R²         MAE ($)              MSE ($²)
-------------------------------------------------------------------
-Linear (test)         0.8214         215,430      78,442,103,210
-Ridge  (test)         0.8208         215,902      78,711,520,003
+Training neural network (200 epochs)... done.
+
+Model              R2         MAE ($)            MSE ($^2)
+--------------------------------------------------------------
+Linear         0.8214         215,430       78,442,103,210
+Ridge          0.8208         215,902       78,711,520,003
+Neural Net     0.8095         223,118       82,140,884,001
 
 What would you like to do?
   1. Show diagnostic plots
   2. Predict a house price
-  3. Re-print metrics
+  3. Show metrics again
   4. Quit
 Choice: 2
-
-Enter the house features to get a price estimate.
-Type 'back' at the size prompt to return to the main menu.
 
 House size in sq ft (or 'back'): 1800
 Number of bedrooms (default 3): 4
 Location (Downtown / Suburb / Rural): Downtown
   Predicted price for a 1800 sq-ft, 4-bedroom Downtown house:
-    Linear   $3,072,000
-    Ridge    $3,068,000
+    Linear      $3,072,000
+    Ridge       $3,068,000
+    Neural Net  $2,985,400
 ```
 
 ---
 
-## Robustness
+## Project requirements
 
-The program is defensive about every external interaction:
+This project was built for a class assignment with two sets of
+requirements: the project description and a general programming
+rubric.
 
-- **Bad numeric input** (e.g. `"abc"` for alpha or bedrooms) is
-  re-prompted, not silently defaulted.
-- **Non-positive hyperparameters** (alpha ≤ 0, bedrooms ≤ 0) are rejected.
-- **Unknown location** (`"forest"`) is re-prompted with the valid set.
-- **Out-of-menu choices** print a helpful message and re-show the menu.
-- **`Ctrl-C` / `Ctrl-D`** print `"Interrupted. Goodbye."` instead of a
-  traceback.
+**Project description**
+
+| Requirement | Where it shows up |
+|---|---|
+| Regression model for house price | Three models trained in `main()` |
+| Pandas, NumPy, Matplotlib, scikit-learn | All used (see imports) |
+| TensorFlow (preferred for user interaction) | `build_nn()` and the NN training block |
+| Evaluated with MAE and R² | `score_model()` computes both (plus MSE) |
+
+**Programming rubric**
+
+| # | Requirement | Where in the code |
+|---|---|---|
+| 1 | User interaction | menu loop, `ask_float` / `ask_int` / `ask_location`, `predict_loop` |
+| 2 | A clear purpose | predict the price of a house from a few features |
+| 3 | `while`, `for`, `if`, `else` | re-prompt loops, menu loop, plotting loop, input validation |
+| 4 | Variables to store / change data | `results`, `ridge_alpha`, train/test splits, scaler state |
+| 5 | Strings, lists, dictionaries, other collections | `menu` dict, `LOCATIONS` list, `NUMERIC_COLS` / `CATEGORY_COLS` lists, prediction dict |
+| 6 | Defined and called functions | every step (load, preprocess, train, plot, predict) is a separate function |
+| 7 | Source URLs in comments | top of `main.py` docstring |
+| 8 | Borrowed code modified | sklearn `Pipeline` shape is from the docs; the data, menu, plots, NN wrapper and input handling are written from scratch |
+
+---
+
+## Model limitations: out-of-range inputs
+
+A model can only reliably predict prices for houses **similar to the
+ones it was trained on**. The training data covers houses roughly
+**800–3500 sq ft**. If you enter a size far outside that range, all
+three models will still give you a number, but **none of them will be
+trustworthy** — and they will disagree with each other a lot.
+
+### Example
+
+```
+House size in sq ft (or 'back'): 123
+Number of bedrooms (default 3): 3
+Location (Downtown / Suburb / Rural): Suburb
+  Predicted price for a 123 sq-ft, 3-bedroom Suburb house:
+    Linear      $1,443,890
+    Ridge       $1,406,954
+    Neural Net  $121,930
+```
+
+A 123 sq-ft "house" is smaller than a parking space, but Linear and
+Ridge confidently predict ~$1.4M while the Neural Net says ~$122k.
+All three answers are wrong, just for different reasons.
+
+### Why Linear and Ridge return ~$1.4M
+
+A linear model is literally a straight-line formula:
+
+```
+price ≈ intercept + w₁·size + w₂·bedrooms + w₃·location
+```
+
+At `size = 123` the contribution from the size term is tiny, but
+`intercept + bedrooms + Suburb` still adds up to about $1.4M. The
+model just keeps following its line past the training range — it has
+no way to "know" that 123 sq ft is unrealistic.
+
+### Why the Neural Net returns ~$122k
+
+Neural networks do not extrapolate well:
+
+1. **Standardisation** turns 123 sq ft into a very negative z-score
+   that the network never saw while training.
+2. **ReLU** activations clip negative values to zero, so on weird
+   inputs many neurons "turn off" and the network loses most of its
+   signal.
+3. **De-normalising the output** (`pred * y_std + y_mean`) then
+   converts the leftover noise into something that looks like a
+   price but isn't.
+
+### Takeaway
+
+| Input | Linear / Ridge | Neural Net |
+|---|---|---|
+| Inside the training range (~800–3500 sq ft) | Trustworthy | Trustworthy |
+| Outside the training range (e.g. 123) | Looks plausible but is wrong | Usually nonsense |
+
+So linear models *hide* their ignorance by extending the line, while
+neural nets visibly break. Either way, predictions outside the
+training range should not be trusted.
 
 ---
 
@@ -153,20 +202,19 @@ The program is defensive about every external interaction:
 
 | File | Purpose |
 |---|---|
-| `main.py` | All code: data prep, models, evaluation, plotting, menu |
-| `home_dataset.csv` | Input data — `HouseSize`, `Bedrooms`, `Location`, `HousePrice` |
-| `requirements.txt` | Python dependencies |
-| `training_log.txt` | Auto-appended per-run log (alpha, R²/MAE/MSE per model) |
+| `main.py` | All of the code: data loading, models, plots, menu |
+| `home_dataset.csv` | The dataset |
+| `requirements.txt` | Python dependencies (needs Python 3.12) |
+| `.python-version` | Tells `pyenv` / IDEs to use Python 3.12 |
 
 ---
 
 ## Sources
 
-Referenced for ideas only — code in this repo is original:
-
-- scikit-learn `Ridge` API:
-  https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html
-- scikit-learn `ColumnTransformer` / `Pipeline` guide:
-  https://scikit-learn.org/stable/modules/compose.html
-- W3Schools scikit-learn linear regression tutorial:
+- scikit-learn Linear Regression and Ridge tutorials —
+  https://www.geeksforgeeks.org/machine-learning/ml-linear-regression/ ,
+  https://www.geeksforgeeks.org/machine-learning/what-is-ridge-regression/
+- W3Schools scikit-learn tutorial —
   https://www.w3schools.com/python/python_ml_linear_regression.asp
+- TensorFlow Keras regression tutorial —
+  https://www.tensorflow.org/tutorials/keras/regression
