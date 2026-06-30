@@ -50,7 +50,18 @@ RANDOM_SEED = 42
 # preprocessing section
 def load_data(path):
     # read the CSV and drop rows that look like bad data
-    df = pd.read_csv(path)
+    try:
+        df = pd.read_csv(path)
+    except FileNotFoundError:
+        print(f"Could not find the data file '{path}'. "
+              f"Make sure it's in the same folder as this script.")
+        raise SystemExit(1)
+    except pd.errors.EmptyDataError:
+        print(f"The data file '{path}' is empty.")
+        raise SystemExit(1)
+    except pd.errors.ParserError as err:
+        print(f"Could not parse '{path}' as a CSV: {err}")
+        raise SystemExit(1)
     df = df[df[TARGET_COL] > PRICE_FLOOR]
     return df
 
@@ -61,6 +72,14 @@ def make_preprocessor():
         ("scale", StandardScaler(), NUMERIC_COLS),
         ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False),
          CATEGORY_COLS),
+    ])
+
+
+def make_regression_pipeline(regressor):
+    # preprocessor + regressor; shared by Linear and Ridge branches
+    return Pipeline([
+        ("prep", make_preprocessor()),
+        ("reg", regressor),
     ])
 
 
@@ -271,18 +290,12 @@ def main():
     y_test = np.asarray(y_test)
 
     # linear regression
-    lin_model = Pipeline([
-        ("prep", make_preprocessor()),
-        ("reg", LinearRegression()),
-    ])
+    lin_model = make_regression_pipeline(LinearRegression())
     lin_model.fit(X_train, y_train)
     lin_pred = lin_model.predict(X_test)
 
     # ridge regression
-    rid_model = Pipeline([
-        ("prep", make_preprocessor()),
-        ("reg", Ridge(alpha=ridge_alpha)),
-    ])
+    rid_model = make_regression_pipeline(Ridge(alpha=ridge_alpha))
     rid_model.fit(X_train, y_train)
     rid_pred = rid_model.predict(X_test)
 
