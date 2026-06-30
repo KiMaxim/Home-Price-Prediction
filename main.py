@@ -119,24 +119,31 @@ def print_results(results):
     print()
 
 
-def show_plots(y_test, lin_pred, rid_pred, nn_pred, nn_history, df):
-    _, axs = plt.subplots(2, 2, figsize=(13, 9))
-
-    # scatter of predicted vs actual for all three models
-    ax = axs[0, 0]
-    lo = float(y_test.min())
-    hi = float(y_test.max())
-    ax.scatter(y_test, lin_pred, color="blue", alpha=0.6, label="Linear")
-    ax.scatter(y_test, rid_pred, color="green", alpha=0.6, label="Ridge")
-    ax.scatter(y_test, nn_pred, color="orange", alpha=0.6, label="Neural Net")
+def _plot_pred_vs_actual(ax, y_test, y_pred, title, color):
+    # one model's predicted-vs-actual scatter with the perfect-fit reference line
+    lo = float(np.min(y_test))
+    hi = float(np.max(y_test))
+    ax.scatter(y_test, y_pred, color=color, alpha=0.6, label="predicted")
     ax.plot([lo, hi], [lo, hi], color="red", linestyle="--", label="perfect")
     ax.set_xlabel("Actual price ($)")
     ax.set_ylabel("Predicted price ($)")
-    ax.set_title("Predicted vs Actual")
+    ax.set_title(title)
     ax.legend()
 
+
+def show_plots(y_test, lin_pred, rid_pred, nn_pred, nn_history, df):
+    _, axs = plt.subplots(2, 3, figsize=(16, 9))
+
+    # one predicted-vs-actual scatter per model
+    _plot_pred_vs_actual(axs[0, 0], y_test, lin_pred,
+                         "Linear: Predicted vs Actual", "blue")
+    _plot_pred_vs_actual(axs[0, 1], y_test, rid_pred,
+                         "Ridge: Predicted vs Actual", "green")
+    _plot_pred_vs_actual(axs[0, 2], y_test, nn_pred,
+                         "Neural Net: Predicted vs Actual", "orange")
+
     # neural network training loss
-    ax = axs[0, 1]
+    ax = axs[1, 0]
     ax.plot(nn_history.history["loss"], color="orange", label="train")
     if "val_loss" in nn_history.history:
         ax.plot(nn_history.history["val_loss"], color="red",
@@ -148,7 +155,7 @@ def show_plots(y_test, lin_pred, rid_pred, nn_pred, nn_history, df):
     ax.legend()
 
     # house size vs house price
-    ax = axs[1, 0]
+    ax = axs[1, 1]
     colors = {"Downtown": "red", "Suburb": "blue", "Rural": "green"}
     for loc in LOCATIONS:
         sub = df[df["Location"] == loc]
@@ -160,7 +167,7 @@ def show_plots(y_test, lin_pred, rid_pred, nn_pred, nn_history, df):
     ax.legend()
 
     # average price by bedroom count
-    ax = axs[1, 1]
+    ax = axs[1, 2]
     by_bed = df.groupby("Bedrooms")["HousePrice"].mean()
     ax.bar(by_bed.index, by_bed.values, color="purple", alpha=0.7)
     ax.set_xlabel("Bedrooms")
